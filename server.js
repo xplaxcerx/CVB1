@@ -5,6 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
+const cdekService = require('./cdek-service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,6 +13,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 const swaggerOptions = {
     definition: {
@@ -270,6 +272,10 @@ db.serialize(() => {
         clientPhone TEXT,
         totalAmount REAL NOT NULL,
         status TEXT DEFAULT 'pending',
+        deliveryService TEXT,
+        deliveryTrackingNumber TEXT,
+        deliveryCost REAL,
+        deliveryAddress TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
@@ -769,6 +775,304 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', service: 'electronics-store-api' });
 });
 
+/**
+ * @swagger
+ * /api/delivery/test:
+ *   get:
+ *     summary: Тест подключения к СДЭК API
+ *     tags: [Доставка]
+ *     responses:
+ *       200:
+ *         description: Результаты теста
+ */
+app.get('/api/delivery/test', async (req, res) => {
+    try {
+        const result = await cdekService.testConnection();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/delivery/calculate:
+ *   post:
+ *     summary: Рассчитать стоимость доставки СДЭК
+ *     tags: [Доставка]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               city:
+ *                 type: string
+ *                 description: Город доставки
+ *               address:
+ *                 type: string
+ *                 description: Адрес доставки
+ *               deliveryType:
+ *                 type: string
+ *                 enum: [door, pickup]
+ *                 description: Тип доставки (door - до двери, pickup - до пункта выдачи)
+ *               weight:
+ *                 type: integer
+ *                 description: Вес посылки в граммах
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     productId:
+ *                       type: integer
+ *                     quantity:
+ *                       type: integer
+ *           example:
+ *             city: "Санкт-Петербург"
+ *             address: "Невский проспект, 1"
+ *             deliveryType: "door"
+ *             items:
+ *               - productId: 1
+ *                 quantity: 2
+ *     responses:
+ *       200:
+ *         description: Стоимость доставки рассчитана
+ *       500:
+ *         description: Ошибка расчета доставки
+ */
+app.post('/api/delivery/calculate', async (req, res) => {
+    try {
+        const useList = req.body.useList !== false;
+        
+        const result = useList 
+            ? await cdekService.calculateDeliveryList(req.body)
+            : await cdekService.calculateDelivery(req.body);
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка при расчете доставки',
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/delivery/create:
+ *   post:
+ *     summary: Создать заказ доставки в СДЭК
+ *     tags: [Доставка]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [orderId, clientName, clientPhone, clientEmail, city, address]
+ *             properties:
+ *               orderId:
+ *                 type: integer
+ *                 description: ID заказа из системы
+ *               clientName:
+ *                 type: string
+ *               clientPhone:
+ *                 type: string
+ *               clientEmail:
+ *                 type: string
+ *               city:
+ *                 type: string
+ *               cityCode:
+ *                 type: integer
+ *               address:
+ *                 type: string
+ *               tariffCode:
+ *                 type: integer
+ *               weight:
+ *                 type: integer
+ *               orderAmount:
+ *                 type: number
+ *           example:
+ *             orderId: 1
+ *             clientName: "Иван Иванов"
+ *             clientPhone: "+79001234567"
+ *             clientEmail: "ivan@example.com"
+ *             city: "Санкт-Петербург"
+ *             address: "Невский проспект, 1, кв. 10"
+ *             tariffCode: 136
+ *             weight: 2000
+ *             orderAmount: 50000
+ *     responses:
+ *       200:
+ *         description: Заказ доставки создан
+ *       500:
+ *         description: Ошибка создания заказа
+ */
+app.post('/api/delivery/create', async (req, res) => {
+    try {
+        const result = await cdekService.createDeliveryOrder(req.body);
+        
+        if (result.success) {
+            db.run(
+                'UPDATE orders SET deliveryTrackingNumber = ?, deliveryService = ? WHERE id = ?',
+                [result.cdekOrderNumber, 'СДЭК', req.body.orderId],
+                (err) => {
+                    if (err) {
+                        console.error('Ошибка обновления заказа:', err);
+                    }
+                }
+            );
+            
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка при создании заказа доставки',
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/delivery/track/{cdekOrderId}:
+ *   get:
+ *     summary: Отследить статус доставки
+ *     tags: [Доставка]
+ *     parameters:
+ *       - in: path
+ *         name: cdekOrderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: UUID заказа СДЭК
+ *     responses:
+ *       200:
+ *         description: Информация о доставке получена
+ *       500:
+ *         description: Ошибка получения информации
+ */
+app.get('/api/delivery/track/:cdekOrderId', async (req, res) => {
+    try {
+        const result = await cdekService.trackDelivery(req.params.cdekOrderId);
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка отслеживания доставки',
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/delivery/points:
+ *   get:
+ *     summary: Получить список пунктов выдачи СДЭК
+ *     tags: [Доставка]
+ *     parameters:
+ *       - in: query
+ *         name: city
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Название города
+ *     responses:
+ *       200:
+ *         description: Список пунктов выдачи
+ *       500:
+ *         description: Ошибка получения пунктов
+ */
+app.get('/api/delivery/points', async (req, res) => {
+    try {
+        const city = req.query.city;
+        if (!city) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Необходимо указать город' 
+            });
+        }
+        
+        const result = await cdekService.getDeliveryPoints(city);
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка получения пунктов выдачи',
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/delivery/cities:
+ *   get:
+ *     summary: Найти города для доставки
+ *     tags: [Доставка]
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Поисковый запрос (название города)
+ *     responses:
+ *       200:
+ *         description: Список найденных городов
+ *       500:
+ *         description: Ошибка поиска городов
+ */
+app.get('/api/delivery/cities', async (req, res) => {
+    try {
+        const query = req.query.query;
+        if (!query) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Необходимо указать поисковый запрос' 
+            });
+        }
+        
+        const result = await cdekService.getCities(query);
+        
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка поиска городов',
+            details: error.message 
+        });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Веб-API запущен на порту ${PORT}`);
     console.log(`Доступные endpoints:`);
@@ -779,6 +1083,10 @@ app.listen(PORT, () => {
     console.log(`  GET  /api/categories - получить все категории`);
     console.log(`  POST /api/products - добавить товар`);
     console.log(`  POST /api/orders - создать заказ`);
+    console.log(`  POST /api/delivery/calculate - рассчитать доставку СДЭК`);
+    console.log(`  POST /api/delivery/create - создать заказ доставки`);
+    console.log(`  GET  /api/delivery/track/:id - отследить доставку`);
+    console.log(`  GET  /api/delivery/points - пункты выдачи СДЭК`);
     console.log(`  GET  /api-docs - Swagger документация`);
 });
 
