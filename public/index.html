@@ -331,6 +331,7 @@
                     <div class="tab active" onclick="switchTab('products')">Товары</div>
                     <div class="tab" onclick="switchTab('orders')">Заказы</div>
                     <div class="tab" onclick="switchTab('delivery')">Доставка</div>
+                    <div class="tab" onclick="switchTab('investment')">Инвестиции</div>
                 </div>
 
                 <!-- Вкладка: Товары -->
@@ -435,6 +436,48 @@
                     
                     <div id="deliveryResult" style="margin-top: 20px;"></div>
                 </div>
+
+                <!-- Вкладка: Инвестиции -->
+                <div id="investment-tab" class="tab-content">
+                    <h3 style="margin-bottom: 15px;">💰 Инвестиционная платформа</h3>
+                    
+                    <button onclick="testInvestmentConnection()" style="background: #2196F3; margin-bottom: 15px;">🧪 Тест подключения Investment API</button>
+                    <button onclick="loadSecurities()" style="background: #4caf50;">📊 Загрузить ценные бумаги</button>
+                    
+                    <div style="margin-top: 20px; padding: 15px; background: #e3f2fd; border-radius: 8px;">
+                        <h4 style="margin-bottom: 10px;">💡 Калькулятор операции</h4>
+                        <div class="form-group">
+                            <label>Ценная бумага:</label>
+                            <select id="invSecurityId">
+                                <option value="">Сначала загрузите бумаги</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Количество:</label>
+                            <input type="number" id="invQuantity" placeholder="10" value="10">
+                        </div>
+                        <div class="form-group">
+                            <label>Цена за акцию (₽):</label>
+                            <input type="number" id="invPrice" placeholder="170.50" value="170.50" step="0.01">
+                        </div>
+                        <div class="form-group">
+                            <label>Комиссия (₽):</label>
+                            <input type="number" id="invCommission" placeholder="5.00" value="5.00" step="0.01">
+                        </div>
+                        <button onclick="calculateInvestment()">💵 Рассчитать стоимость</button>
+                    </div>
+
+                    <div style="margin-top: 20px; padding: 15px; background: #fff3e0; border-radius: 8px;">
+                        <h4 style="margin-bottom: 10px;">📝 Создать операцию с уведомлением</h4>
+                        <div class="form-group">
+                            <label>Email для уведомлений:</label>
+                            <input type="email" id="invClientEmail" placeholder="client@example.com">
+                        </div>
+                        <button onclick="createInvestmentOperation()">✅ Создать операцию</button>
+                    </div>
+                    
+                    <div id="investmentResult" style="margin-top: 20px;"></div>
+                </div>
             </div>
 
             <!-- Правая колонка: Результаты -->
@@ -480,6 +523,9 @@
             } else if (tab === 'delivery') {
                 document.getElementById('dataTitle').textContent = '🚚 Доставка СДЭК';
                 document.getElementById('dataArea').innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">Выберите действие для работы с доставкой</p>';
+            } else if (tab === 'investment') {
+                document.getElementById('dataTitle').textContent = '💰 Инвестиционная платформа';
+                document.getElementById('dataArea').innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">Выберите действие для работы с инвестициями</p>';
             }
         }
 
@@ -1010,6 +1056,205 @@
                 }
             } catch (error) {
                 showError('Ошибка загрузки пунктов выдачи: ' + error.message);
+            }
+        }
+
+        // ========== ФУНКЦИИ ИНВЕСТИЦИЙ ==========
+
+        // Тест подключения к Investment API
+        async function testInvestmentConnection() {
+            showLoading();
+            document.getElementById('investmentResult').innerHTML = '<div class="spinner"></div><p style="text-align:center;">Тестирование подключения к Investment API...</p>';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/investment/test`);
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('investmentResult').innerHTML = `
+                        <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #4caf50;">
+                            <h3 style="color: #4caf50; margin-bottom: 15px;">✅ Подключение работает!</h3>
+                            <p>✅ Статус API: ${result.details.status ? 'Доступен' : 'Недоступен'}</p>
+                            <p>✅ Ценные бумаги: ${result.details.securities ? 'Загружаются' : 'Ошибка'}</p>
+                        </div>
+                    `;
+                    showSuccess(result, 'Investment API работает корректно');
+                } else {
+                    document.getElementById('investmentResult').innerHTML = `
+                        <div style="background: #ffebee; padding: 20px; border-radius: 8px;">
+                            <strong style="color: #f44336;">❌ Ошибка подключения</strong><br>${result.error}
+                        </div>
+                    `;
+                    showError('Ошибка Investment API: ' + result.error);
+                }
+            } catch (error) {
+                document.getElementById('investmentResult').innerHTML = `
+                    <div style="background: #ffebee; padding: 20px; border-radius: 8px;">
+                        <strong style="color: #f44336;">❌ Ошибка:</strong> ${error.message}
+                    </div>
+                `;
+                showError('Ошибка соединения: ' + error.message);
+            }
+        }
+
+        // Загрузка списка ценных бумаг
+        async function loadSecurities() {
+            showLoading();
+
+            try {
+                const response = await fetch(`${API_BASE}/api/investment/securities`);
+                const result = await response.json();
+
+                console.log('📥 Ответ от сервера:', result);
+
+                if (result.success && result.securities) {
+                    let securities = result.securities;
+                    
+                    // Проверка что это массив
+                    if (!Array.isArray(securities)) {
+                        console.error('❌ Securities не массив:', securities);
+                        showError('Неверный формат данных от API. Смотрите консоль браузера.');
+                        return;
+                    }
+
+                    if (securities.length === 0) {
+                        showError('Список ценных бумаг пуст');
+                        return;
+                    }
+
+                    const select = document.getElementById('invSecurityId');
+                    select.innerHTML = '<option value="">Выберите ценную бумагу</option>';
+                    securities.forEach(s => {
+                        select.innerHTML += `<option value="${s.id}">${s.name || s.ticker || 'Без названия'} - ${s.price || s.currentPrice || 0}₽</option>`;
+                    });
+
+                    document.getElementById('dataTitle').textContent = `📊 Ценные бумаги (${result.count})`;
+                    const html = `
+                        <div style="padding: 20px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                                ${securities.map(s => `
+                                    <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; border: 2px solid #e0e0e0;">
+                                        <div style="font-weight: 600; color: #333; margin-bottom: 5px;">${s.name || s.ticker || 'N/A'}</div>
+                                        <div style="font-size: 20px; color: #4caf50; font-weight: 700;">${s.price || s.currentPrice || 0} ₽</div>
+                                        <div style="font-size: 12px; color: #666; margin-top: 5px;">ID: ${s.id}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('dataArea').innerHTML = html;
+                    showSuccess(result, `Загружено бумаг: ${result.count}`);
+                } else {
+                    console.error('❌ Ошибка:', result);
+                    showError(result.error || 'Бумаги не найдены');
+                }
+            } catch (error) {
+                console.error('❌ Exception:', error);
+                showError('Ошибка загрузки бумаг: ' + error.message);
+            }
+        }
+
+        // Расчет стоимости операции
+        async function calculateInvestment() {
+            const data = {
+                securityId: parseInt(document.getElementById('invSecurityId').value),
+                quantity: parseInt(document.getElementById('invQuantity').value),
+                purchasePricePerShare: parseFloat(document.getElementById('invPrice').value),
+                commission: parseFloat(document.getElementById('invCommission').value)
+            };
+
+            if (!data.securityId || !data.quantity || !data.purchasePricePerShare) {
+                alert('Заполните все обязательные поля!');
+                return;
+            }
+
+            document.getElementById('investmentResult').innerHTML = '<div class="spinner"></div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/investment/calculate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('investmentResult').innerHTML = `
+                        <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #4caf50;">
+                            <h3 style="color: #4caf50; margin-bottom: 15px;">✅ Расчет выполнен!</h3>
+                            <div style="font-size: 16px; line-height: 1.8;">
+                                <strong>Общая стоимость операции:</strong> 
+                                <span style="font-size: 24px; color: #4caf50; font-weight: 700;">${result.calculation.totalCost} ₽</span><br>
+                                <strong>Стоимость акций:</strong> ${result.calculation.stocksCost}₽<br>
+                                <strong>Комиссия:</strong> ${result.calculation.commission}₽<br>
+                                <strong>Количество:</strong> ${result.calculation.quantity} шт.
+                            </div>
+                        </div>
+                    `;
+                    showSuccess(result, `Общая стоимость: ${result.calculation.totalCost}₽`);
+                } else {
+                    document.getElementById('investmentResult').innerHTML = `
+                        <div style="background: #ffebee; padding: 20px; border-radius: 8px;">
+                            <strong style="color: #f44336;">❌ Ошибка расчета</strong><br>${result.error}
+                        </div>
+                    `;
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('Ошибка: ' + error.message);
+            }
+        }
+
+        // Создание операции
+        async function createInvestmentOperation() {
+            const email = document.getElementById('invClientEmail').value;
+            
+            if (!email) {
+                alert('Укажите email для уведомлений!');
+                return;
+            }
+
+            const data = {
+                securityId: parseInt(document.getElementById('invSecurityId').value),
+                quantity: parseInt(document.getElementById('invQuantity').value),
+                purchasePricePerShare: parseFloat(document.getElementById('invPrice').value),
+                commission: parseFloat(document.getElementById('invCommission').value),
+                clientEmail: email
+            };
+
+            if (!data.securityId || !data.quantity || !data.purchasePricePerShare) {
+                alert('Заполните все обязательные поля!');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/investment/operations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    document.getElementById('investmentResult').innerHTML = `
+                        <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; border-left: 4px solid #4caf50;">
+                            <h3 style="color: #4caf50; margin-bottom: 15px;">✅ Операция создана!</h3>
+                            <p>ID операции: ${result.operation.id}</p>
+                            <p>Email для уведомлений: ${email}</p>
+                            <p style="margin-top: 10px; font-size: 13px; color: #666;">
+                                Вы можете установить триггер для получения уведомлений о изменении цены
+                            </p>
+                        </div>
+                    `;
+                    showSuccess(result, `Операция создана! ID: ${result.operation.id}`);
+                    document.getElementById('invClientEmail').value = '';
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('Ошибка: ' + error.message);
             }
         }
     </script>

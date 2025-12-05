@@ -6,6 +6,7 @@ const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
 const cdekService = require('./cdek-service');
+const investmentService = require('./investment-service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -799,6 +800,250 @@ app.get('/api/delivery/test', async (req, res) => {
 
 /**
  * @swagger
+ * /api/investment/securities:
+ *   get:
+ *     summary: Получить список ценных бумаг
+ *     tags: [Инвестиции]
+ *     responses:
+ *       200:
+ *         description: Список ценных бумаг
+ */
+app.get('/api/investment/securities', async (req, res) => {
+    try {
+        const result = await investmentService.getSecurities();
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/investment/calculate:
+ *   post:
+ *     summary: Рассчитать стоимость операции
+ *     tags: [Инвестиции]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [securityId, quantity, purchasePricePerShare]
+ *             properties:
+ *               securityId:
+ *                 type: integer
+ *               quantity:
+ *                 type: integer
+ *               purchasePricePerShare:
+ *                 type: number
+ *               commission:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Расчет выполнен
+ */
+app.post('/api/investment/calculate', async (req, res) => {
+    try {
+        const result = await investmentService.calculateOperation(req.body);
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/investment/operations:
+ *   get:
+ *     summary: Получить список операций
+ *     tags: [Инвестиции]
+ *     responses:
+ *       200:
+ *         description: Список операций
+ *   post:
+ *     summary: Создать операцию
+ *     tags: [Инвестиции]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [securityId, quantity, purchasePricePerShare, clientEmail]
+ *             properties:
+ *               securityId:
+ *                 type: integer
+ *               quantity:
+ *                 type: integer
+ *               purchasePricePerShare:
+ *                 type: number
+ *               commission:
+ *                 type: number
+ *               clientEmail:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Операция создана
+ */
+app.get('/api/investment/operations', async (req, res) => {
+    try {
+        const result = await investmentService.getOperations();
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.post('/api/investment/operations', async (req, res) => {
+    try {
+        const result = await investmentService.createOperation(req.body);
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/investment/triggers:
+ *   get:
+ *     summary: Получить список триггеров
+ *     tags: [Инвестиции]
+ *     responses:
+ *       200:
+ *         description: Список триггеров
+ *   post:
+ *     summary: Создать триггер
+ *     tags: [Инвестиции]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [operationId, targetPrice]
+ *             properties:
+ *               operationId:
+ *                 type: integer
+ *               targetPrice:
+ *                 type: number
+ *               triggerType:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Триггер создан
+ */
+app.get('/api/investment/triggers', async (req, res) => {
+    try {
+        const result = await investmentService.getTriggers();
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.post('/api/investment/triggers', async (req, res) => {
+    try {
+        const result = await investmentService.createTrigger(req.body);
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/investment/triggers/check:
+ *   post:
+ *     summary: Проверить триггеры
+ *     tags: [Инвестиции]
+ *     responses:
+ *       200:
+ *         description: Триггеры проверены
+ */
+app.post('/api/investment/triggers/check', async (req, res) => {
+    try {
+        const result = await investmentService.checkTriggers();
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/investment/test:
+ *   get:
+ *     summary: Тест подключения к Investment API
+ *     tags: [Инвестиции]
+ *     responses:
+ *       200:
+ *         description: Результаты теста
+ */
+app.get('/api/investment/test', async (req, res) => {
+    try {
+        const result = await investmentService.testConnection();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * @swagger
  * /api/delivery/calculate:
  *   post:
  *     summary: Рассчитать стоимость доставки СДЭК
@@ -1087,6 +1332,10 @@ app.listen(PORT, () => {
     console.log(`  POST /api/delivery/create - создать заказ доставки`);
     console.log(`  GET  /api/delivery/track/:id - отследить доставку`);
     console.log(`  GET  /api/delivery/points - пункты выдачи СДЭК`);
+    console.log(`  GET  /api/investment/securities - список ценных бумаг`);
+    console.log(`  POST /api/investment/calculate - расчет операции`);
+    console.log(`  GET  /api/investment/operations - операции с акциями`);
+    console.log(`  GET  /api/investment/triggers - инвестиционные триггеры`);
     console.log(`  GET  /api-docs - Swagger документация`);
 });
 
